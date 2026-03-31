@@ -713,6 +713,301 @@ class MonopolyCommands(commands.Cog):
         await ctx.send(embed=embed)
     
     @commands.hybrid_command(
+        name="houses",
+        description="Buy a house for a property you own",
+        aliases=["buyhouse", "buildhouse", "build"]
+    )
+    @app_commands.describe(property_name="Name or position of the property")
+    async def buy_house_cmd(self, ctx: commands.Context, *, property_name: str):
+        """Buy a house for one of your properties."""
+        game = self.get_game(ctx.channel.id)
+        if not game or not game.game_started:
+            await ctx.send("❌ No active game! Use `!start` to begin.")
+            return
+        
+        player = game.get_current_player()
+        if not player or player.user_id != ctx.author.id:
+            await ctx.send("❌ Not your turn!")
+            return
+        
+        # Find property by name or position
+        prop_pos = None
+        try:
+            prop_pos = int(property_name)
+        except ValueError:
+            for pos, prop in game.board.properties.items():
+                if property_name.lower() in prop.name.lower():
+                    prop_pos = pos
+                    break
+        
+        if prop_pos is None or prop_pos not in game.board.properties:
+            await ctx.send("❌ Invalid property! Use property name or position number.")
+            return
+        
+        success, message = game.buy_house_for_player(player, prop_pos)
+        
+        if success:
+            embed = discord.Embed(title="🏠 House Built!", description=message, color=discord.Color.green())
+            prop = game.board.properties[prop_pos]
+            embed.add_field(name="Property", value=prop.name, inline=True)
+            embed.add_field(name="Houses", value=f"{prop.houses}/4", inline=True)
+            embed.add_field(name="Current Rent", value=f"${prop.get_rent()}", inline=True)
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send(f"❌ {message}")
+    
+    @commands.hybrid_command(
+        name="hotel",
+        description="Buy a hotel for a property (requires 4 houses)",
+        aliases=["buyhotel", "buildhotel"]
+    )
+    @app_commands.describe(property_name="Name or position of the property")
+    async def buy_hotel_cmd(self, ctx: commands.Context, *, property_name: str):
+        """Buy a hotel for one of your properties."""
+        game = self.get_game(ctx.channel.id)
+        if not game or not game.game_started:
+            await ctx.send("❌ No active game! Use `!start` to begin.")
+            return
+        
+        player = game.get_current_player()
+        if not player or player.user_id != ctx.author.id:
+            await ctx.send("❌ Not your turn!")
+            return
+        
+        # Find property by name or position
+        prop_pos = None
+        try:
+            prop_pos = int(property_name)
+        except ValueError:
+            for pos, prop in game.board.properties.items():
+                if property_name.lower() in prop.name.lower():
+                    prop_pos = pos
+                    break
+        
+        if prop_pos is None or prop_pos not in game.board.properties:
+            await ctx.send("❌ Invalid property! Use property name or position number.")
+            return
+        
+        success, message = game.buy_hotel_for_player(player, prop_pos)
+        
+        if success:
+            embed = discord.Embed(title="🏨 Hotel Built!", description=message, color=discord.Color.gold())
+            prop = game.board.properties[prop_pos]
+            embed.add_field(name="Property", value=prop.name, inline=True)
+            embed.add_field(name="Status", value="🏨 HOTEL", inline=True)
+            embed.add_field(name="New Rent", value=f"${prop.get_rent()}", inline=True)
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send(f"❌ {message}")
+    
+    @commands.hybrid_command(
+        name="mortgage",
+        description="Mortgage a property to get cash",
+        aliases=["mortgageprop", "mort"]
+    )
+    @app_commands.describe(property_name="Name or position of the property")
+    async def mortgage_cmd(self, ctx: commands.Context, *, property_name: str):
+        """Mortgage one of your properties to get quick cash."""
+        game = self.get_game(ctx.channel.id)
+        if not game or not game.game_started:
+            await ctx.send("❌ No active game! Use `!start` to begin.")
+            return
+        
+        player = game.get_current_player()
+        if not player or player.user_id != ctx.author.id:
+            await ctx.send("❌ Not your turn!")
+            return
+        
+        # Find property by name or position
+        prop_pos = None
+        try:
+            prop_pos = int(property_name)
+        except ValueError:
+            for pos, prop in game.board.properties.items():
+                if property_name.lower() in prop.name.lower():
+                    prop_pos = pos
+                    break
+        
+        if prop_pos is None or prop_pos not in game.board.properties:
+            await ctx.send("❌ Invalid property! Use property name or position number.")
+            return
+        
+        success, message = game.mortgage_property_for_player(player, prop_pos)
+        
+        if success:
+            prop = game.board.properties[prop_pos]
+            embed = discord.Embed(title="📜 Property Mortgaged!", description=message, color=discord.Color.orange())
+            embed.add_field(name="Property", value=prop.name, inline=True)
+            embed.add_field(name="Cash Received", value=f"${prop.get_mortgage_value()}", inline=True)
+            embed.add_field(name="To Unmortgage", value=f"${prop.get_unmortgage_cost()}", inline=True)
+            embed.set_footer(text="⚠️ Mortgaged properties don't collect rent!")
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send(f"❌ {message}")
+    
+    @commands.hybrid_command(
+        name="unmortgage",
+        description="Unmortgage a property to activate it again",
+        aliases=["unmortgageprop", "unmort"]
+    )
+    @app_commands.describe(property_name="Name or position of the property")
+    async def unmortgage_cmd(self, ctx: commands.Context, *, property_name: str):
+        """Unmortgage one of your properties."""
+        game = self.get_game(ctx.channel.id)
+        if not game or not game.game_started:
+            await ctx.send("❌ No active game! Use `!start` to begin.")
+            return
+        
+        player = game.get_current_player()
+        if not player or player.user_id != ctx.author.id:
+            await ctx.send("❌ Not your turn!")
+            return
+        
+        # Find property by name or position
+        prop_pos = None
+        try:
+            prop_pos = int(property_name)
+        except ValueError:
+            for pos, prop in game.board.properties.items():
+                if property_name.lower() in prop.name.lower():
+                    prop_pos = pos
+                    break
+        
+        if prop_pos is None or prop_pos not in game.board.properties:
+            await ctx.send("❌ Invalid property! Use property name or position number.")
+            return
+        
+        success, message = game.unmortgage_property_for_player(player, prop_pos)
+        
+        if success:
+            prop = game.board.properties[prop_pos]
+            embed = discord.Embed(title="✅ Property Unmortgaged!", description=message, color=discord.Color.green())
+            embed.add_field(name="Property", value=prop.name, inline=True)
+            embed.add_field(name="Cost Paid", value=f"${prop.get_unmortgage_cost()}", inline=True)
+            embed.set_footer(text="✓ Property now collects rent again!")
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send(f"❌ {message}")
+    
+    @commands.hybrid_command(
+        name="sellhouse",
+        description="Sell a house/hotel back to the bank",
+        aliases=["sellhouse", "sellhotel", "demolish"]
+    )
+    @app_commands.describe(property_name="Name or position of the property")
+    async def sell_house_cmd(self, ctx: commands.Context, *, property_name: str):
+        """Sell a house or hotel back to the bank for half price."""
+        game = self.get_game(ctx.channel.id)
+        if not game or not game.game_started:
+            await ctx.send("❌ No active game! Use `!start` to begin.")
+            return
+        
+        player = game.get_current_player()
+        if not player or player.user_id != ctx.author.id:
+            await ctx.send("❌ Not your turn!")
+            return
+        
+        # Find property by name or position
+        prop_pos = None
+        try:
+            prop_pos = int(property_name)
+        except ValueError:
+            for pos, prop in game.board.properties.items():
+                if property_name.lower() in prop.name.lower():
+                    prop_pos = pos
+                    break
+        
+        if prop_pos is None or prop_pos not in game.board.properties:
+            await ctx.send("❌ Invalid property! Use property name or position number.")
+            return
+        
+        success, message = game.sell_house_for_player(player, prop_pos)
+        
+        if success:
+            prop = game.board.properties[prop_pos]
+            embed = discord.Embed(title="💰 House Sold!", description=message, color=discord.Color.dark_gold())
+            embed.add_field(name="Property", value=prop.name, inline=True)
+            house_cost = prop.get_house_cost()
+            embed.add_field(name="Cash Received", value=f"${house_cost // 2}", inline=True)
+            if prop.hotel:
+                embed.add_field(name="Status", value="🏨 Has Hotel", inline=True)
+            else:
+                embed.add_field(name="Houses", value=f"{prop.houses}/4", inline=True)
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send(f"❌ {message}")
+    
+    @commands.hybrid_command(
+        name="develop",
+        description="View development options for your properties",
+        aliases=["development", "buildings", "improve"]
+    )
+    async def develop_cmd(self, ctx: commands.Context):
+        """View which properties can be developed with houses/hotels."""
+        game = self.get_game(ctx.channel.id)
+        if not game or not game.game_started:
+            await ctx.send("❌ No active game! Use `!start` to begin.")
+            return
+        
+        player = game.get_current_player()
+        if not player or player.user_id != ctx.author.id:
+            await ctx.send("❌ Not your turn!")
+            return
+        
+        dev_info = game.get_property_development_info(player)
+        
+        embed = discord.Embed(
+            title="🏗️ Property Development Options",
+            description=f"Your money: **${player.money}**",
+            color=discord.Color.blue()
+        )
+        
+        if dev_info["developable"]:
+            can_build = [p for p in dev_info["developable"] if p.get("can_develop", False)]
+            cant_build = [p for p in dev_info["developable"] if not p.get("can_develop", True)]
+            
+            if can_build:
+                build_text = ""
+                for prop in can_build[:5]:  # Show first 5
+                    if prop.get("hotel"):
+                        build_text += f"**{prop['name']}**: 🏨 Hotel (max)\n"
+                    elif prop["houses"] == 4:
+                        build_text += f"**{prop['name']}**: Can buy HOTEL for ${prop.get('hotel_cost', 0)}\n"
+                    else:
+                        build_text += f"**{prop['name']}**: {prop['houses']}/4 houses - House costs ${prop.get('house_cost', 0)}\n"
+                
+                if len(can_build) > 5:
+                    build_text += f"...and {len(can_build) - 5} more"
+                
+                embed.add_field(name="✅ Can Develop", value=build_text or "None", inline=False)
+            
+            if cant_build:
+                cant_text = ""
+                for prop in cant_build[:5]:
+                    cant_text += f"**{prop['name']}**: {prop.get('reason', 'Cannot build')}\n"
+                
+                if len(cant_build) > 5:
+                    cant_text += f"...and {len(cant_build) - 5} more"
+                
+                embed.add_field(name="❌ Cannot Develop Yet", value=cant_text or "None", inline=False)
+        else:
+            embed.add_field(name="Properties", value="No developable properties owned!", inline=False)
+        
+        if dev_info["mortgaged"]:
+            mort_text = ""
+            for prop in dev_info["mortgaged"][:5]:
+                mort_text += f"**{prop['name']}**: Mortgage ${prop['mortgage_value']} | Unmortgage ${prop['unmortgage_cost']}\n"
+            
+            if len(dev_info["mortgaged"]) > 5:
+                mort_text += f"...and {len(dev_info['mortgaged']) - 5} more"
+            
+            embed.add_field(name="📜 Mortgaged Properties", value=mort_text, inline=False)
+        
+        embed.set_footer(text="Use !house <property> or !hotel <property> to build")
+        
+        await ctx.send(embed=embed)
+    
+    @commands.hybrid_command(
         name="help_monopoly",
         description="Show Monopoly command help",
         aliases=["monopoly_help", "commands"]
@@ -730,8 +1025,12 @@ class MonopolyCommands(commands.Cog):
              "`!start [max_players] [npcs]` - Create new game\n`!join` - Join game\n`!leave` - Leave game\n`!addnpc [personality]` - Add NPC opponent\n`!begin` - Start game"),
             ("🎲 Playing",
              "`!roll` - Roll dice & move\n`!buy` - Buy property\n`!status` - View your stats\n`!board` - View all players\n`!payrent` - Pay rent when landed"),
+            ("🏗️ Houses & Hotels",
+             "`!house <property>` - Buy a house\n`!hotel <property>` - Buy a hotel (needs 4 houses)\n`!sellhouse <property>` - Sell house/hotel\n`!develop` - View development options"),
+            ("📜 Mortgages",
+             "`!mortgage <property>` - Mortgage property for cash\n`!unmortgage <property>` - Restore property\nGet 50% value, pay 55% to restore!"),
             ("🔨 Auction System",
-             "`!auction` - Start auction for current property\n`!bid <amount>` - Place a bid\n`!pass` - Pass on bidding\n`!auctionstatus` - View auction info\nPlayers can auction properties they decline to buy!"),
+             "`!auction` - Start auction for current property\n`!bid <amount>` - Place a bid\n`!pass` - Pass on bidding\n`!auctionstatus` - View auction info"),
             ("🤖 NPC Features",
              "NPCs auto-play their turns!\nPersonalities: aggressive, conservative, balanced, random\nAuto-buy properties & pay rent\nNPCs participate in auctions!"),
             ("🃏 Cards",
@@ -742,12 +1041,6 @@ class MonopolyCommands(commands.Cog):
             embed.add_field(name=category, value=cmds, inline=False)
         
         embed.set_footer(text="Use !help <command> for more details | Hybrid: works with / and !")
-        
-        await ctx.send(embed=embed)
-        for category, cmds in commands_list:
-            embed.add_field(name=category, value=cmds, inline=False)
-        
-        embed.set_footer(text="Use !help <command> for more details on a specific command")
         
         await ctx.send(embed=embed)
 

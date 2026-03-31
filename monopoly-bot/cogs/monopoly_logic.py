@@ -57,6 +57,19 @@ class Property:
         if self.mortgage:
             return 0
         
+        # Railroads have special rent calculation
+        if self.color == PropertyColor.RAILROAD:
+            owner_id = self.owner
+            if owner_id is None:
+                return 0
+            # Count total railroads owned
+            # This will be calculated externally, return base for now
+            return self.rent
+        
+        # Utilities have special rent calculation (dice multiplier)
+        if self.color == PropertyColor.UTILITY:
+            return self.rent  # Multiplied by dice roll externally
+        
         base_rent = self.rent
         
         if self.hotel:
@@ -66,6 +79,113 @@ class Property:
             return base_rent * (1 + self.houses)
         
         return base_rent
+    
+    def can_buy_house(self, player_properties: List[int], board_properties: Dict[int, 'Property']) -> Tuple[bool, str]:
+        """Check if player can buy a house on this property."""
+        if self.mortgage:
+            return False, "Property is mortgaged!"
+        
+        if self.hotel:
+            return False, "Already has a hotel!"
+        
+        if self.houses >= 4:
+            return False, "Maximum houses already built!"
+        
+        if self.color in [PropertyColor.RAILROAD, PropertyColor.UTILITY]:
+            return False, "Cannot build houses on railroads or utilities!"
+        
+        # Check if player owns all properties of this color
+        color_props = [p for p in board_properties.values() 
+                      if p.color == self.color and p.position in player_properties]
+        total_color_props = sum(1 for p in board_properties.values() if p.color == self.color)
+        
+        if len(color_props) < total_color_props:
+            return False, "Need complete color set to build houses!"
+        
+        return True, "Can buy house"
+    
+    def get_house_cost(self) -> int:
+        """Get the cost to build one house on this property."""
+        if self.color == PropertyColor.RAILROAD or self.color == PropertyColor.UTILITY:
+            return 0
+        
+        house_costs = {
+            PropertyColor.BROWN: 50,
+            PropertyColor.LIGHT_BLUE: 50,
+            PropertyColor.PINK: 100,
+            PropertyColor.ORANGE: 100,
+            PropertyColor.RED: 150,
+            PropertyColor.YELLOW: 150,
+            PropertyColor.GREEN: 200,
+            PropertyColor.DARK_BLUE: 200,
+        }
+        
+        return house_costs.get(self.color, 0)
+    
+    def get_hotel_cost(self) -> int:
+        """Get the cost to build a hotel (4 houses worth)."""
+        return self.get_house_cost() * 4
+    
+    def buy_house(self) -> Tuple[bool, str]:
+        """Buy a house for this property."""
+        if self.houses >= 4:
+            return False, "Already at maximum houses!"
+        
+        self.houses += 1
+        return True, f"Bought house #{self.houses}"
+    
+    def buy_hotel(self) -> Tuple[bool, str]:
+        """Buy a hotel (requires 4 houses)."""
+        if self.houses != 4:
+            return False, "Need 4 houses before buying a hotel!"
+        
+        if self.hotel:
+            return False, "Already has a hotel!"
+        
+        self.houses = 0
+        self.hotel = True
+        return True, "Bought hotel!"
+    
+    def sell_house(self) -> Tuple[bool, str]:
+        """Sell a house back to the bank."""
+        if self.houses <= 0 and not self.hotel:
+            return False, "No houses to sell!"
+        
+        if self.hotel:
+            self.hotel = False
+            self.houses = 4
+            return True, "Sold hotel, now has 4 houses"
+        
+        self.houses -= 1
+        return True, f"Sold house, now has {self.houses} houses"
+    
+    def get_mortgage_value(self) -> int:
+        """Get the mortgage value (half of property price)."""
+        return self.price // 2
+    
+    def get_unmortgage_cost(self) -> int:
+        """Get the cost to unmortgage (mortgage value + 10% interest)."""
+        mortgage_val = self.get_mortgage_value()
+        return mortgage_val + (mortgage_val // 10)
+    
+    def mortgage_property(self) -> Tuple[bool, str]:
+        """Mortgage this property."""
+        if self.mortgage:
+            return False, "Property already mortgaged!"
+        
+        if self.houses > 0 or self.hotel:
+            return False, "Must sell all houses/hotels first!"
+        
+        self.mortgage = True
+        return True, f"Mortgaged for ${self.get_mortgage_value()}"
+    
+    def unmortgage_property(self) -> Tuple[bool, str]:
+        """Unmortgage this property."""
+        if not self.mortgage:
+            return False, "Property not mortgaged!"
+        
+        self.mortgage = False
+        return True, f"Unmortgaged for ${self.get_unmortgage_cost()}"
 
 
 @dataclass
@@ -921,4 +1041,212 @@ class MonopolyGame:
             "current_player": current.username if current else None,
             "game_over": self.game_over,
             "winner": self.winner
+        }
+    
+    def buy_house_for_player(self, player: Player, property_pos: int) -> Tuple[bool, str]:
+        """Buy a house for a player on a specific property."""
+        if property_pos not in self.board.properties:
+            return False, "Invalid property!"
+        
+        prop = self.board.properties[property_pos]
+        
+        if prop.owner != player.user_id:
+            return False, "You don't own this property!"
+        
+        can_buy, reason = prop.can_buy_house(player.properties, self.board.properties)
+        if not can_buy:
+            return False, reason
+        
+        house_cost = prop.get_house_cost()
+        if player.money < house_cost:
+            return False, f"Not enough money! Need ${house_cost}, have ${player.money}"
+        
+        player.pay(house_cost)
+        success, msg = prop.buy_house()
+        
+        if success:
+            return True, f"🏠 Bought a house on {prop.name} for ${house_cost}! Now has {prop.houses} houses."
+        return False, msg
+    
+    def buy_hotel_for_player(self, player: Player, property_pos: int) -> Tuple[bool, str]:
+        """Buy a hotel for a player on a specific property."""
+        if property_pos not in self.board.properties:
+            return False, "Invalid property!"
+        
+        prop = self.board.properties[property_pos]
+        
+        if prop.owner != player.user_id:
+            return False, "You don't own this property!"
+        
+        if prop.houses != 4:
+            return False, "Need 4 houses before buying a hotel!"
+        
+        hotel_cost = prop.get_hotel_cost()
+        if player.money < hotel_cost:
+            return False, f"Not enough money! Need ${hotel_cost}, have ${player.money}"
+        
+        player.pay(hotel_cost)
+        success, msg = prop.buy_hotel()
+        
+        if success:
+            return True, f"🏨 Bought a hotel on {prop.name} for ${hotel_cost}! Rent increased significantly!"
+        return False, msg
+    
+    def mortgage_property_for_player(self, player: Player, property_pos: int) -> Tuple[bool, str]:
+        """Mortgage a property for a player."""
+        if property_pos not in self.board.properties:
+            return False, "Invalid property!"
+        
+        prop = self.board.properties[property_pos]
+        
+        if prop.owner != player.user_id:
+            return False, "You don't own this property!"
+        
+        success, msg = prop.mortgage_property()
+        
+        if success:
+            mortgage_value = prop.get_mortgage_value()
+            player.receive(mortgage_value)
+            return True, f"📜 Mortgaged {prop.name} for ${mortgage_value}! Property is now inactive."
+        return False, msg
+    
+    def unmortgage_property_for_player(self, player: Player, property_pos: int) -> Tuple[bool, str]:
+        """Unmortgage a property for a player."""
+        if property_pos not in self.board.properties:
+            return False, "Invalid property!"
+        
+        prop = self.board.properties[property_pos]
+        
+        if prop.owner != player.user_id:
+            return False, "You don't own this property!"
+        
+        if not prop.mortgage:
+            return False, "Property is not mortgaged!"
+        
+        unmortgage_cost = prop.get_unmortgage_cost()
+        if player.money < unmortgage_cost:
+            return False, f"Not enough money! Need ${unmortgage_cost}, have ${player.money}"
+        
+        player.pay(unmortgage_cost)
+        success, msg = prop.unmortgage_property()
+        
+        if success:
+            return True, f"✅ Unmortgaged {prop.name} for ${unmortgage_cost}! Property is now active."
+        return False, msg
+    
+    def sell_house_for_player(self, player: Player, property_pos: int) -> Tuple[bool, str]:
+        """Sell a house/hotel back to the bank."""
+        if property_pos not in self.board.properties:
+            return False, "Invalid property!"
+        
+        prop = self.board.properties[property_pos]
+        
+        if prop.owner != player.user_id:
+            return False, "You don't own this property!"
+        
+        if prop.houses <= 0 and not prop.hotel:
+            return False, "No houses/hotels to sell!"
+        
+        house_cost = prop.get_house_cost()
+        sell_value = house_cost // 2  # Sell for half price
+        
+        player.receive(sell_value)
+        success, msg = prop.sell_house()
+        
+        if success:
+            if prop.hotel:
+                return True, f"💰 Sold hotel on {prop.name} for ${sell_value}! Now has 4 houses."
+            else:
+                return True, f"💰 Sold house on {prop.name} for ${sell_value}! Now has {prop.houses} houses."
+        return False, msg
+    
+    def get_railroad_rent(self, property_pos: int, dice_rolls: List[Tuple[int, int]] = None) -> int:
+        """Calculate railroad rent based on number of railroads owned."""
+        if property_pos not in self.board.properties:
+            return 0
+        
+        prop = self.board.properties[property_pos]
+        if prop.color != PropertyColor.RAILROAD or prop.mortgage:
+            return 0
+        
+        owner_id = prop.owner
+        if owner_id is None:
+            return 0
+        
+        # Count total railroads owned
+        railroad_positions = [5, 15, 25, 35]  # Reading, Pennsylvania, B&O, Short Line
+        owned_count = sum(1 for pos in railroad_positions 
+                         if pos in self.board.properties and self.board.properties[pos].owner == owner_id)
+        
+        # Rent: $25, $50, $100, $200 based on count
+        rents = {1: 25, 2: 50, 3: 100, 4: 200}
+        return rents.get(owned_count, 0)
+    
+    def get_utility_rent(self, property_pos: int, dice_total: int) -> int:
+        """Calculate utility rent based on dice roll and ownership."""
+        if property_pos not in self.board.properties:
+            return 0
+        
+        prop = self.board.properties[property_pos]
+        if prop.color != PropertyColor.UTILITY or prop.mortgage:
+            return 0
+        
+        owner_id = prop.owner
+        if owner_id is None:
+            return 0
+        
+        # Check if owner owns both utilities
+        utility_positions = [12, 28]  # Electric, Water Works
+        owns_both = all(pos in self.board.properties and self.board.properties[pos].owner == owner_id 
+                       for pos in utility_positions)
+        
+        # Rent: 4x dice if one utility, 10x dice if both
+        multiplier = 10 if owns_both else 4
+        return dice_total * multiplier
+    
+    def get_property_development_info(self, player: Player) -> dict:
+        """Get development info for all player's properties."""
+        developable = []
+        mortgaged = []
+        
+        for pos in player.properties:
+            if pos not in self.board.properties:
+                continue
+            
+            prop = self.board.properties[pos]
+            
+            if prop.mortgage:
+                mortgaged.append({
+                    "name": prop.name,
+                    "mortgage_value": prop.get_mortgage_value(),
+                    "unmortgage_cost": prop.get_unmortgage_cost()
+                })
+            elif prop.color in [PropertyColor.RAILROAD, PropertyColor.UTILITY]:
+                developable.append({
+                    "name": prop.name,
+                    "type": prop.color.value,
+                    "houses": prop.houses,
+                    "hotel": prop.hotel,
+                    "can_develop": False,
+                    "reason": "Cannot build on railroads/utilities"
+                })
+            else:
+                can_buy, reason = prop.can_buy_house(player.properties, self.board.properties)
+                house_cost = prop.get_house_cost()
+                hotel_cost = prop.get_hotel_cost()
+                
+                developable.append({
+                    "name": prop.name,
+                    "color": prop.color.value,
+                    "houses": prop.houses,
+                    "hotel": prop.hotel,
+                    "house_cost": house_cost,
+                    "hotel_cost": hotel_cost,
+                    "can_develop": can_buy,
+                    "reason": reason if not can_buy else "Ready to develop"
+                })
+        
+        return {
+            "developable": developable,
+            "mortgaged": mortgaged
         }
